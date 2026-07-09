@@ -330,9 +330,6 @@
 
 <script>
 (function () {
-  const RANGES = { 0: [1,15], 1: [16,30], 2: [31,45], 3: [46,60], 4: [61,75] };
-  const LETTERS = ['B','I','N','G','O'];
-
   let peer = null;
   let conn = null;
   let isHost = false;
@@ -357,15 +354,12 @@
   }
 
   function generateCard() {
+    const pool = [];
+    for (let n = 1; n <= 25; n++) pool.push(n);
+    shuffle(pool);
     const card = [];
     for (let col = 0; col < 5; col++) {
-      const [min, max] = RANGES[col];
-      const pool = [];
-      for (let n = min; n <= max; n++) pool.push(n);
-      shuffle(pool);
-      const colVals = pool.slice(0, 5);
-      if (col === 2) colVals[2] = 'FREE';
-      card.push(colVals);
+      card.push(pool.slice(col * 5, col * 5 + 5));
     }
     return card;
   }
@@ -538,13 +532,8 @@
         const val = myCard[col][row];
         const cell = document.createElement('div');
         cell.className = 'cell';
-        if (val === 'FREE') {
-          cell.classList.add('free', 'marked');
-          cell.textContent = 'FREE';
-        } else {
-          cell.textContent = val;
-          if (calledSet.has(val)) cell.classList.add('marked');
-        }
+        cell.textContent = val;
+        if (calledSet.has(val)) cell.classList.add('marked');
         grid.appendChild(cell);
       }
     }
@@ -554,11 +543,10 @@
     if (calledSet.has(num)) return;
     calledSet.add(num);
     calledNumbers.push(num);
-    const letter = LETTERS[Math.floor((num - 1) / 15)];
-    el('lastBall').textContent = letter + '-' + num;
+    el('lastBall').textContent = num;
     const chip = document.createElement('div');
     chip.className = 'called-chip';
-    chip.textContent = letter + num;
+    chip.textContent = num;
     el('calledList').prepend(chip);
     renderCard();
     if (checkWin()) {
@@ -570,9 +558,9 @@
   el('drawBtn').addEventListener('click', () => {
     if (!isHost || gameOver) return;
     const remaining = [];
-    for (let n = 1; n <= 75; n++) if (!calledSet.has(n)) remaining.push(n);
+    for (let n = 1; n <= 25; n++) if (!calledSet.has(n)) remaining.push(n);
     if (remaining.length === 0) {
-      setLog('All 75 numbers have been called!');
+      setLog('All 25 numbers have been called!');
       return;
     }
     const num = remaining[randInt(0, remaining.length - 1)];
@@ -581,10 +569,7 @@
   });
 
   function checkWin() {
-    const marked = (col, row) => {
-      const v = myCard[col][row];
-      return v === 'FREE' || calledSet.has(v);
-    };
+    const marked = (col, row) => calledSet.has(myCard[col][row]);
     for (let row = 0; row < 5; row++) {
       let full = true;
       for (let col = 0; col < 5; col++) if (!marked(col, row)) full = false;
