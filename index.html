@@ -176,6 +176,29 @@
     font-size: 1.3rem;
     color: var(--accent);
   }
+  .progress-row {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .progress-letter {
+    text-align: center;
+    padding: 10px 0;
+    border-radius: 8px;
+    font-weight: 800;
+    font-size: 1.2rem;
+    background: var(--panel2);
+    color: var(--muted);
+    border: 2px solid transparent;
+    transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
+  }
+  .progress-letter.lit {
+    background: linear-gradient(160deg, var(--gold), #e08e00);
+    color: #3a2a00;
+    border-color: var(--gold);
+    transform: scale(1.05);
+  }
   .cell {
     aspect-ratio: 1;
     display: flex;
@@ -319,6 +342,13 @@
           <div>B</div><div>I</div><div>N</div><div>G</div><div>O</div>
         </div>
         <div class="bingo-grid" id="bingoGrid"></div>
+        <div class="progress-row" id="progressRow">
+          <div class="progress-letter" data-letter="B">B</div>
+          <div class="progress-letter" data-letter="I">I</div>
+          <div class="progress-letter" data-letter="N">N</div>
+          <div class="progress-letter" data-letter="G">G</div>
+          <div class="progress-letter" data-letter="O">O</div>
+        </div>
       </div>
 
       <div class="call-panel">
@@ -459,6 +489,10 @@
       myTurn = true;
       applyCalledNumber(msg.value);
       updateTurnBanner();
+      renderCard(); // ensure cells reflect the turn flip even if this was a
+                    // duplicate delivery (MQTT QoS 1 can redeliver messages),
+                    // since applyCalledNumber no-ops - and skips its own
+                    // render - for numbers already marked.
     } else if (msg.type === 'bingo-claim') {
       if (!gameOver) {
         showWinModal(msg.winner === 'me' ? 'them' : 'me', msg.winner === 'me' ? 'Opponent' : 'You');
@@ -581,6 +615,8 @@
     }
   }
 
+  const BINGO_LETTERS = ['B', 'I', 'N', 'G', 'O'];
+
   function resetRound(announce) {
     myCard = generateCard();
     calledNumbers = [];
@@ -592,9 +628,41 @@
     el('lastBall').textContent = '--';
     el('calledList').innerHTML = '';
     updateTurnBanner();
+    updateProgress();
     renderCard();
     setLog('New round started.');
     if (announce) send({ type: 'new-round' });
+  }
+
+  function countCompletedLines() {
+    const marked = (col, row) => calledSet.has(myCard[col][row]);
+    let count = 0;
+    for (let row = 0; row < 5; row++) {
+      let full = true;
+      for (let col = 0; col < 5; col++) if (!marked(col, row)) full = false;
+      if (full) count++;
+    }
+    for (let col = 0; col < 5; col++) {
+      let full = true;
+      for (let row = 0; row < 5; row++) if (!marked(col, row)) full = false;
+      if (full) count++;
+    }
+    let diag1 = true, diag2 = true;
+    for (let i = 0; i < 5; i++) {
+      if (!marked(i, i)) diag1 = false;
+      if (!marked(i, 4 - i)) diag2 = false;
+    }
+    if (diag1) count++;
+    if (diag2) count++;
+    return count;
+  }
+
+  function updateProgress() {
+    const lit = Math.min(countCompletedLines(), 5);
+    document.querySelectorAll('#progressRow .progress-letter').forEach((el, i) => {
+      el.classList.toggle('lit', i < lit);
+    });
+    return lit;
   }
 
   function renderCard() {
@@ -636,36 +704,19 @@
     chip.textContent = num;
     el('calledList').prepend(chip);
     renderCard();
-    if (checkWin()) {
+    const lit = updateProgress();
+    if (lit >= 5) {
       el('bingoBtn').disabled = false;
-      setLog("You have a winning line! Click BINGO to claim it.");
+      setLog("You spelled B-I-N-G-O! Click the button to claim it.");
+    } else if (lit > 0) {
+      setLog(`Line complete — that's ${BINGO_LETTERS.slice(0, lit).join('-')}! Keep going for BINGO.`);
     }
-  }
-
-  function checkWin() {
-    const marked = (col, row) => calledSet.has(myCard[col][row]);
-    for (let row = 0; row < 5; row++) {
-      let full = true;
-      for (let col = 0; col < 5; col++) if (!marked(col, row)) full = false;
-      if (full) return true;
-    }
-    for (let col = 0; col < 5; col++) {
-      let full = true;
-      for (let row = 0; row < 5; row++) if (!marked(col, row)) full = false;
-      if (full) return true;
-    }
-    let diag1 = true, diag2 = true;
-    for (let i = 0; i < 5; i++) {
-      if (!marked(i, i)) diag1 = false;
-      if (!marked(i, 4 - i)) diag2 = false;
-    }
-    return diag1 || diag2;
   }
 
   el('bingoBtn').addEventListener('click', () => {
     if (gameOver) return;
-    if (!checkWin()) {
-      setLog("That doesn't look like a valid win yet.");
+    if (countCompletedLines() < 5) {
+      setLog("You need 5 separate lines (B-I-N-G-O) before you can claim it.");
       return;
     }
     gameOver = true;
