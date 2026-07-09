@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Bingo with a Friend</title>
-<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
 <style>
   :root {
     --bg: #0f1424;
@@ -330,8 +330,9 @@
 
 <script>
 (function () {
-  let peer = null;
-  let conn = null;
+  let mqttClient = null;
+  const myId = 'p_' + Math.random().toString(36).slice(2, 10);
+  let opponentId = null;
   let isHost = false;
   let roomCode = '';
   let myCard = null; // myCard[col][row]
@@ -380,62 +381,65 @@
   }
 
   // ---------- Networking ----------
+  // Instead of a direct WebRTC (PeerJS) connection - which repeatedly failed to
+  // establish across different networks/firewalls (NAT traversal is unreliable) -
+  // both players connect to a public MQTT-over-WebSocket relay broker. This is
+  // just a plain outbound TLS connection (like loading any HTTPS page), so it
+  // works through virtually any home, mobile, or corporate network.
+  const BROKER_URL = 'wss://broker.emqx.io:8084/mqtt';
+  const TOPIC_PREFIX = 'claude-bingo-app/v1/';
 
-  // Free STUN + TURN (Open Relay Project) so connections still work when
-  // one side is behind a strict NAT/firewall where plain STUN can't punch through.
-  const PEER_CONFIG = {
-    config: {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-        { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-        { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
-      ]
-    }
-  };
+  const BROKER_TIMEOUT_MS = 15000;
+  const PAIRING_TIMEOUT_MS = 20000;
+  let timeoutId = null;
 
-  const CONNECT_TIMEOUT_MS = 20000;
-  let connectTimeoutId = null;
-
-  function clearConnectTimeout() {
-    if (connectTimeoutId) {
-      clearTimeout(connectTimeoutId);
-      connectTimeoutId = null;
+  function clearNetTimeout() {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
     }
   }
 
-  function armConnectTimeout(onTimeout) {
-    clearConnectTimeout();
-    connectTimeoutId = setTimeout(onTimeout, CONNECT_TIMEOUT_MS);
+  function armTimeout(ms, onTimeout) {
+    clearNetTimeout();
+    timeoutId = setTimeout(onTimeout, ms);
   }
 
-  function setupConnection() {
-    armConnectTimeout(() => {
-      setStatus('Connection timed out. This usually means a firewall/NAT is blocking the link — try a different network (e.g. mobile hotspot) and try again.');
-      el('hostBtn').disabled = false;
-      el('joinBtn').disabled = false;
-      if (conn) conn.close();
-      if (peer) peer.destroy();
-    });
-    conn.on('open', () => {
-      clearConnectTimeout();
-      setStatus('Connected! Starting game...');
-      startGame();
-    });
-    conn.on('data', handleData);
-    conn.on('close', () => {
-      setLog('Your friend disconnected.');
-      el('theirNameLabel').textContent = 'disconnected';
-    });
+  function resetLobbyButtons() {
+    el('hostBtn').disabled = false;
+    el('joinBtn').disabled = false;
   }
 
   function send(msg) {
-    if (conn && conn.open) conn.send(msg);
+    if (mqttClient) {
+      mqttClient.publish(TOPIC_PREFIX + roomCode, JSON.stringify({ ...msg, from: myId }), { qos: 1 });
+    }
   }
 
-  function handleData(msg) {
-    if (msg.type === 'number') {
-      applyCalledNumber(msg.value, false);
+  function handleTopicMessage(payload) {
+    let msg;
+    try {
+      msg = JSON.parse(payload.toString());
+    } catch (e) {
+      return;
+    }
+    if (msg.from === myId) return;
+
+    if (msg.type === 'join') {
+      if (opponentId) return; // room already paired, ignore late/duplicate joiners
+      opponentId = msg.from;
+      clearNetTimeout();
+      send({ type: 'join-ack' });
+      setStatus('Connected! Starting game...');
+      startGame();
+    } else if (msg.type === 'join-ack') {
+      if (opponentId) return;
+      opponentId = msg.from;
+      clearNetTimeout();
+      setStatus('Connected! Starting game...');
+      startGame();
+    } else if (msg.type === 'number') {
+      applyCalledNumber(msg.value);
     } else if (msg.type === 'bingo-claim') {
       if (!gameOver) {
         showWinModal(msg.winner === 'me' ? 'them' : 'me', msg.winner === 'me' ? 'Opponent' : 'You');
@@ -445,30 +449,53 @@
     }
   }
 
+  function connectToBroker(onSubscribed, onFail) {
+    mqttClient = mqtt.connect(BROKER_URL, { connectTimeout: BROKER_TIMEOUT_MS });
+
+    armTimeout(BROKER_TIMEOUT_MS, () => {
+      onFail('Could not reach the relay server. Check your internet connection and try again.');
+    });
+
+    mqttClient.on('connect', () => {
+      clearNetTimeout();
+      mqttClient.subscribe(TOPIC_PREFIX + roomCode, { qos: 1 }, (err) => {
+        if (err) {
+          onFail('Could not join the room channel. Try again.');
+          return;
+        }
+        onSubscribed();
+      });
+    });
+
+    mqttClient.on('message', (topic, payload) => handleTopicMessage(payload));
+
+    mqttClient.on('error', () => {
+      onFail('Connection error reaching the relay server. Try again.');
+    });
+  }
+
   // ---------- Lobby actions ----------
 
   el('hostBtn').addEventListener('click', () => {
     isHost = true;
+    opponentId = null;
     roomCode = makeRoomCode();
     el('hostBtn').disabled = true;
     setStatus('Setting up room...');
-    peer = new Peer('bingo-' + roomCode, PEER_CONFIG);
 
-    peer.on('open', () => {
-      el('roomCodeDisplay').textContent = roomCode;
-      el('roomCodeDisplay').classList.remove('hidden');
-      setStatus('Share this code with your friend. Waiting for them to join...');
-    });
-
-    peer.on('connection', (c) => {
-      conn = c;
-      setupConnection();
-    });
-
-    peer.on('error', (err) => {
-      setStatus('Error: ' + err.type + '. Try again.');
-      el('hostBtn').disabled = false;
-    });
+    connectToBroker(
+      () => {
+        el('roomCodeDisplay').textContent = roomCode;
+        el('roomCodeDisplay').classList.remove('hidden');
+        setStatus('Share this code with your friend. Waiting for them to join...');
+        // No pairing timeout for the host - it's fine to just wait.
+      },
+      (message) => {
+        setStatus(message);
+        resetLobbyButtons();
+        if (mqttClient) mqttClient.end(true);
+      }
+    );
   });
 
   el('joinBtn').addEventListener('click', () => {
@@ -478,20 +505,27 @@
       return;
     }
     isHost = false;
+    opponentId = null;
     roomCode = code;
     el('joinBtn').disabled = true;
     setStatus('Connecting...');
-    peer = new Peer(PEER_CONFIG);
 
-    peer.on('open', () => {
-      conn = peer.connect('bingo-' + roomCode, { reliable: true });
-      setupConnection();
-    });
-
-    peer.on('error', (err) => {
-      setStatus('Could not connect (' + err.type + '). Check the code and try again.');
-      el('joinBtn').disabled = false;
-    });
+    connectToBroker(
+      () => {
+        setStatus('Joining room, waiting for host...');
+        send({ type: 'join' });
+        armTimeout(PAIRING_TIMEOUT_MS, () => {
+          setStatus('Could not find that room. Double-check the code and that your friend is still on the "waiting" screen.');
+          resetLobbyButtons();
+          if (mqttClient) mqttClient.end(true);
+        });
+      },
+      (message) => {
+        setStatus(message);
+        resetLobbyButtons();
+        if (mqttClient) mqttClient.end(true);
+      }
+    );
   });
 
   el('joinCodeInput').addEventListener('keydown', (e) => {
@@ -539,7 +573,7 @@
     }
   }
 
-  function applyCalledNumber(num, isMine) {
+  function applyCalledNumber(num) {
     if (calledSet.has(num)) return;
     calledSet.add(num);
     calledNumbers.push(num);
@@ -564,7 +598,7 @@
       return;
     }
     const num = remaining[randInt(0, remaining.length - 1)];
-    applyCalledNumber(num, true);
+    applyCalledNumber(num);
     send({ type: 'number', value: num });
   });
 

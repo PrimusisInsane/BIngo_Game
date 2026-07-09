@@ -1,6 +1,6 @@
 # Bingo with a Friend
 
-A single-page, no-install Bingo game you can play live with a friend over the internet. Uses [PeerJS](https://peerjs.com/) (WebRTC) for direct peer-to-peer connection — no backend, no database.
+A single-page, no-install Bingo game you can play live with a friend over the internet. Both players connect to a public MQTT-over-WebSocket relay ([broker.emqx.io](https://www.emqx.com/en/mqtt/public-mqtt5-broker)) — no backend, no database, and no account needed. This is a plain outbound connection (like loading any HTTPS page), so unlike direct WebRTC it isn't blocked by strict NATs or firewalls.
 
 ## Play locally
 
@@ -16,7 +16,7 @@ Just open `index.html` in a browser. One player clicks **Create Room** and sends
 
 ## How it works
 
-- Standard 75-ball, 5x5 card (B-I-N-G-O) with a free center space.
+- 5x5 card with the numbers 1-25 shuffled across it (no free space).
 - The host draws numbers; both players' cards auto-mark matches.
 - First to complete a row, column, or diagonal clicks **BINGO!** to claim the win.
 - **New Round** deals fresh cards without needing to reconnect.
