@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bingo with a Friend</title>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1424;
+    --panel: #1b2140;
+    --panel2: #232a4d;
+    --accent: #ff6b6b;
+    --accent2: #4ecdc4;
+    --gold: #ffd166;
+    --text: #eef0f8;
+    --muted: #9aa1c4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: radial-gradient(circle at top, #1a2040 0%, #0a0e1c 70%);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .app {
+    width: 100%;
+    max-width: 900px;
+  }
+  h1 {
+    text-align: center;
+    font-size: 2.4rem;
+    margin: 0 0 6px;
+    letter-spacing: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--gold), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .subtitle {
+    text-align: center;
+    color: var(--muted);
+    margin-bottom: 28px;
+  }
+  .card-panel {
+    background: var(--panel);
+    border-radius: 16px;
+    padding: 28px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+  }
+  .hidden { display: none !important; }
+
+  /* --- Lobby --- */
+  .lobby-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  @media (max-width: 640px) {
+    .lobby-options { grid-template-columns: 1fr; }
+  }
+  .lobby-box {
+    background: var(--panel2);
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .lobby-box h2 {
+    margin: 0 0 4px;
+    font-size: 1.1rem;
+    color: var(--accent2);
+  }
+  input[type=text] {
+    background: #10152b;
+    border: 1px solid #333c66;
+    color: var(--text);
+    padding: 12px 14px;
+    border-radius: 8px;
+    font-size: 1rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+  button {
+    cursor: pointer;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 1rem;
+    font-weight: 600;
+    transition: transform 0.1s ease, opacity 0.2s ease;
+  }
+  button:active { transform: scale(0.97); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: white; }
+  .btn-secondary { background: var(--accent2); color: #062725; }
+  .btn-gold { background: var(--gold); color: #3a2a00; }
+  .status-line {
+    text-align: center;
+    color: var(--muted);
+    margin-top: 18px;
+    min-height: 1.2em;
+  }
+  .room-code-display {
+    text-align: center;
+    font-size: 2rem;
+    letter-spacing: 8px;
+    font-weight: 700;
+    color: var(--gold);
+    padding: 10px 0;
+  }
+
+  /* --- Game screen --- */
+  .game-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .players {
+    display: flex;
+    gap: 14px;
+    font-size: 0.95rem;
+    color: var(--muted);
+  }
+  .players span.me { color: var(--accent2); font-weight: 700; }
+  .players span.them { color: var(--accent); font-weight: 700; }
+  .last-called {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .last-ball {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: linear-gradient(160deg, var(--gold), #e08e00);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: #3a2a00;
+    box-shadow: 0 4px 14px rgba(255,209,102,0.4);
+  }
+  .board-wrap {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .bingo-card {
+    flex: 1 1 320px;
+  }
+  .bingo-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+  }
+  .bingo-header-row {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+  .bingo-header-row div {
+    text-align: center;
+    font-weight: 800;
+    font-size: 1.3rem;
+    color: var(--accent);
+  }
+  .cell {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--panel2);
+    border-radius: 8px;
+    font-size: 1.1rem;
+    font-weight: 600;
+    border: 2px solid transparent;
+    user-select: none;
+    transition: background 0.15s ease, transform 0.15s ease;
+  }
+  .cell.free {
+    background: linear-gradient(160deg, var(--accent2), #2a8f88);
+    color: white;
+    font-size: 0.85rem;
+  }
+  .cell.marked {
+    background: linear-gradient(160deg, var(--accent), #c23f3f);
+    color: white;
+    border-color: var(--gold);
+    transform: scale(0.96);
+  }
+  .call-panel {
+    flex: 1 1 260px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .called-list {
+    background: var(--panel2);
+    border-radius: 10px;
+    padding: 14px;
+    max-height: 200px;
+    overflow-y: auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-content: flex-start;
+  }
+  .called-chip {
+    background: #10152b;
+    border: 1px solid #333c66;
+    padding: 4px 9px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    color: var(--gold);
+  }
+  .actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .actions button { flex: 1; }
+  .log {
+    font-size: 0.85rem;
+    color: var(--muted);
+    min-height: 1.4em;
+  }
+
+  /* --- Win modal --- */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(5,7,20,0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+  }
+  .modal-box {
+    background: var(--panel);
+    border-radius: 16px;
+    padding: 40px;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  }
+  .modal-box h2 {
+    font-size: 2.2rem;
+    margin: 0 0 10px;
+    color: var(--gold);
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>BINGO</h1>
+  <div class="subtitle">Play live with a friend, anywhere</div>
+
+  <div class="card-panel" id="lobby">
+    <div class="lobby-options">
+      <div class="lobby-box">
+        <h2>Host a Game</h2>
+        <p style="color:var(--muted); margin:0; font-size:0.9rem;">Create a room and send the code to your friend.</p>
+        <button class="btn-primary" id="hostBtn">Create Room</button>
+        <div class="room-code-display hidden" id="roomCodeDisplay"></div>
+      </div>
+      <div class="lobby-box">
+        <h2>Join a Game</h2>
+        <p style="color:var(--muted); margin:0; font-size:0.9rem;">Enter the code your friend sent you.</p>
+        <input type="text" id="joinCodeInput" maxlength="4" placeholder="CODE">
+        <button class="btn-secondary" id="joinBtn">Join Room</button>
+      </div>
+    </div>
+    <div class="status-line" id="lobbyStatus"></div>
+  </div>
+
+  <div class="card-panel hidden" id="gameScreen">
+    <div class="game-header">
+      <div class="players">
+        <span>You: <span class="me" id="myNameLabel">Player</span></span>
+        <span>Opponent: <span class="them" id="theirNameLabel">waiting...</span></span>
+      </div>
+      <div class="last-called">
+        <span style="color:var(--muted); font-size:0.85rem;">Last call</span>
+        <div class="last-ball" id="lastBall">--</div>
+      </div>
+    </div>
+
+    <div class="board-wrap">
+      <div class="bingo-card">
+        <div class="bingo-header-row">
+          <div>B</div><div>I</div><div>N</div><div>G</div><div>O</div>
+        </div>
+        <div class="bingo-grid" id="bingoGrid"></div>
+      </div>
+
+      <div class="call-panel">
+        <button class="btn-gold" id="drawBtn">Call Next Number</button>
+        <button class="btn-primary" id="bingoBtn" disabled>BINGO! Claim Win</button>
+        <div>
+          <div style="color:var(--muted); font-size:0.85rem; margin-bottom:6px;">Numbers called</div>
+          <div class="called-list" id="calledList"></div>
+        </div>
+        <div class="actions">
+          <button class="btn-secondary" id="newGameBtn">New Round</button>
+        </div>
+        <div class="log" id="logLine"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="winModal">
+  <div class="modal-box">
+    <h2 id="winTitle">BINGO!</h2>
+    <p id="winSubtitle" style="color:var(--muted);"></p>
+    <button class="btn-gold" id="closeModalBtn" style="margin-top:16px;">Close</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  const RANGES = { 0: [1,15], 1: [16,30], 2: [31,45], 3: [46,60], 4: [61,75] };
+  const LETTERS = ['B','I','N','G','O'];
+
+  let peer = null;
+  let conn = null;
+  let isHost = false;
+  let roomCode = '';
+  let myCard = null; // myCard[col][row]
+  let calledNumbers = []; // in order called
+  let calledSet = new Set();
+  let gameOver = false;
+
+  const el = (id) => document.getElementById(id);
+
+  function randInt(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+
+  function shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
+  function generateCard() {
+    const card = [];
+    for (let col = 0; col < 5; col++) {
+      const [min, max] = RANGES[col];
+      const pool = [];
+      for (let n = min; n <= max; n++) pool.push(n);
+      shuffle(pool);
+      const colVals = pool.slice(0, 5);
+      if (col === 2) colVals[2] = 'FREE';
+      card.push(colVals);
+    }
+    return card;
+  }
+
+  function makeRoomCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 4; i++) code += chars[randInt(0, chars.length - 1)];
+    return code;
+  }
+
+  function setStatus(msg) {
+    el('lobbyStatus').textContent = msg;
+  }
+
+  function setLog(msg) {
+    el('logLine').textContent = msg;
+  }
+
+  // ---------- Networking ----------
+
+  function setupConnection() {
+    conn.on('open', () => {
+      setStatus('Connected! Starting game...');
+      startGame();
+    });
+    conn.on('data', handleData);
+    conn.on('close', () => {
+      setLog('Your friend disconnected.');
+      el('theirNameLabel').textContent = 'disconnected';
+    });
+  }
+
+  function send(msg) {
+    if (conn && conn.open) conn.send(msg);
+  }
+
+  function handleData(msg) {
+    if (msg.type === 'number') {
+      applyCalledNumber(msg.value, false);
+    } else if (msg.type === 'bingo-claim') {
+      if (!gameOver) {
+        showWinModal(msg.winner === 'me' ? 'them' : 'me', msg.winner === 'me' ? 'Opponent' : 'You');
+      }
+    } else if (msg.type === 'new-round') {
+      resetRound(false);
+    }
+  }
+
+  // ---------- Lobby actions ----------
+
+  el('hostBtn').addEventListener('click', () => {
+    isHost = true;
+    roomCode = makeRoomCode();
+    el('hostBtn').disabled = true;
+    setStatus('Setting up room...');
+    peer = new Peer('bingo-' + roomCode);
+
+    peer.on('open', () => {
+      el('roomCodeDisplay').textContent = roomCode;
+      el('roomCodeDisplay').classList.remove('hidden');
+      setStatus('Share this code with your friend. Waiting for them to join...');
+    });
+
+    peer.on('connection', (c) => {
+      conn = c;
+      setupConnection();
+    });
+
+    peer.on('error', (err) => {
+      setStatus('Error: ' + err.type + '. Try again.');
+      el('hostBtn').disabled = false;
+    });
+  });
+
+  el('joinBtn').addEventListener('click', () => {
+    const code = el('joinCodeInput').value.trim().toUpperCase();
+    if (code.length !== 4) {
+      setStatus('Enter the 4-character code your friend gave you.');
+      return;
+    }
+    isHost = false;
+    roomCode = code;
+    el('joinBtn').disabled = true;
+    setStatus('Connecting...');
+    peer = new Peer();
+
+    peer.on('open', () => {
+      conn = peer.connect('bingo-' + roomCode, { reliable: true });
+      setupConnection();
+    });
+
+    peer.on('error', (err) => {
+      setStatus('Could not connect (' + err.type + '). Check the code and try again.');
+      el('joinBtn').disabled = false;
+    });
+  });
+
+  el('joinCodeInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') el('joinBtn').click();
+  });
+
+  // ---------- Game ----------
+
+  function startGame() {
+    el('lobby').classList.add('hidden');
+    el('gameScreen').classList.remove('hidden');
+    el('myNameLabel').textContent = isHost ? 'Host' : 'Guest';
+    el('theirNameLabel').textContent = isHost ? 'Guest' : 'Host';
+    el('drawBtn').classList.toggle('hidden', !isHost);
+    if (!isHost) setLog('Waiting for the host to call numbers.');
+    resetRound(true);
+  }
+
+  function resetRound(announce) {
+    myCard = generateCard();
+    calledNumbers = [];
+    calledSet = new Set();
+    gameOver = false;
+    el('winModal').classList.add('hidden');
+    el('bingoBtn').disabled = true;
+    el('lastBall').textContent = '--';
+    el('calledList').innerHTML = '';
+    renderCard();
+    setLog('New round started.');
+    if (announce) send({ type: 'new-round' });
+  }
+
+  function renderCard() {
+    const grid = el('bingoGrid');
+    grid.innerHTML = '';
+    for (let row = 0; row < 5; row++) {
+      for (let col = 0; col < 5; col++) {
+        const val = myCard[col][row];
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        if (val === 'FREE') {
+          cell.classList.add('free', 'marked');
+          cell.textContent = 'FREE';
+        } else {
+          cell.textContent = val;
+          if (calledSet.has(val)) cell.classList.add('marked');
+        }
+        grid.appendChild(cell);
+      }
+    }
+  }
+
+  function applyCalledNumber(num, isMine) {
+    if (calledSet.has(num)) return;
+    calledSet.add(num);
+    calledNumbers.push(num);
+    const letter = LETTERS[Math.floor((num - 1) / 15)];
+    el('lastBall').textContent = letter + '-' + num;
+    const chip = document.createElement('div');
+    chip.className = 'called-chip';
+    chip.textContent = letter + num;
+    el('calledList').prepend(chip);
+    renderCard();
+    if (checkWin()) {
+      el('bingoBtn').disabled = false;
+      setLog("You have a winning line! Click BINGO to claim it.");
+    }
+  }
+
+  el('drawBtn').addEventListener('click', () => {
+    if (!isHost || gameOver) return;
+    const remaining = [];
+    for (let n = 1; n <= 75; n++) if (!calledSet.has(n)) remaining.push(n);
+    if (remaining.length === 0) {
+      setLog('All 75 numbers have been called!');
+      return;
+    }
+    const num = remaining[randInt(0, remaining.length - 1)];
+    applyCalledNumber(num, true);
+    send({ type: 'number', value: num });
+  });
+
+  function checkWin() {
+    const marked = (col, row) => {
+      const v = myCard[col][row];
+      return v === 'FREE' || calledSet.has(v);
+    };
+    for (let row = 0; row < 5; row++) {
+      let full = true;
+      for (let col = 0; col < 5; col++) if (!marked(col, row)) full = false;
+      if (full) return true;
+    }
+    for (let col = 0; col < 5; col++) {
+      let full = true;
+      for (let row = 0; row < 5; row++) if (!marked(col, row)) full = false;
+      if (full) return true;
+    }
+    let diag1 = true, diag2 = true;
+    for (let i = 0; i < 5; i++) {
+      if (!marked(i, i)) diag1 = false;
+      if (!marked(i, 4 - i)) diag2 = false;
+    }
+    return diag1 || diag2;
+  }
+
+  el('bingoBtn').addEventListener('click', () => {
+    if (gameOver) return;
+    if (!checkWin()) {
+      setLog("That doesn't look like a valid win yet.");
+      return;
+    }
+    gameOver = true;
+    send({ type: 'bingo-claim', winner: 'me' });
+    showWinModal('me', 'You');
+  });
+
+  function showWinModal(who, label) {
+    gameOver = true;
+    el('winTitle').textContent = who === 'me' ? 'You got BINGO!' : label + ' got BINGO!';
+    el('winSubtitle').textContent = who === 'me'
+      ? 'Nice one! Start a new round when ready.'
+      : 'Better luck next round!';
+    el('winModal').classList.remove('hidden');
+  }
+
+  el('closeModalBtn').addEventListener('click', () => {
+    el('winModal').classList.add('hidden');
+  });
+
+  el('newGameBtn').addEventListener('click', () => {
+    resetRound(true);
+  });
+})();
+</script>
+</body>
+</html>
