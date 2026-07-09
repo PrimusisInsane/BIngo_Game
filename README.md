@@ -17,6 +17,6 @@ Just open `index.html` in a browser. One player clicks **Create Room** and sends
 ## How it works
 
 - 5x5 card with the numbers 1-25 shuffled across it (no free space).
-- The host draws numbers; both players' cards auto-mark matches.
+- Players take turns calling a number: on your turn, tap any unmarked number on your own board to call it. It marks on both boards, then the turn passes to your friend.
 - First to complete a row, column, or diagonal clicks **BINGO!** to claim the win.
-- **New Round** deals fresh cards without needing to reconnect.
+- **New Round** deals fresh cards without needing to reconnect (host calls first each round).

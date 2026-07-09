@@ -189,22 +189,39 @@
     user-select: none;
     transition: background 0.15s ease, transform 0.15s ease;
   }
-  .cell.free {
-    background: linear-gradient(160deg, var(--accent2), #2a8f88);
-    color: white;
-    font-size: 0.85rem;
-  }
   .cell.marked {
     background: linear-gradient(160deg, var(--accent), #c23f3f);
     color: white;
     border-color: var(--gold);
     transform: scale(0.96);
   }
+  .cell.callable {
+    cursor: pointer;
+    border-color: var(--accent2);
+    box-shadow: 0 0 0 1px var(--accent2);
+  }
+  .cell.callable:hover {
+    background: #2c3563;
+    transform: scale(1.04);
+  }
   .call-panel {
     flex: 1 1 260px;
     display: flex;
     flex-direction: column;
     gap: 14px;
+  }
+  .turn-banner {
+    text-align: center;
+    padding: 14px;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 1.05rem;
+    background: var(--panel2);
+    color: var(--muted);
+  }
+  .turn-banner.my-turn {
+    background: linear-gradient(160deg, var(--accent2), #2a8f88);
+    color: white;
   }
   .called-list {
     background: var(--panel2);
@@ -305,7 +322,7 @@
       </div>
 
       <div class="call-panel">
-        <button class="btn-gold" id="drawBtn">Call Next Number</button>
+        <div class="turn-banner" id="turnBanner">--</div>
         <button class="btn-primary" id="bingoBtn" disabled>BINGO! Claim Win</button>
         <div>
           <div style="color:var(--muted); font-size:0.85rem; margin-bottom:6px;">Numbers called</div>
@@ -439,7 +456,9 @@
       setStatus('Connected! Starting game...');
       startGame();
     } else if (msg.type === 'number') {
+      myTurn = true;
       applyCalledNumber(msg.value);
+      updateTurnBanner();
     } else if (msg.type === 'bingo-claim') {
       if (!gameOver) {
         showWinModal(msg.winner === 'me' ? 'them' : 'me', msg.winner === 'me' ? 'Opponent' : 'You');
@@ -534,14 +553,28 @@
 
   // ---------- Game ----------
 
+  let myTurn = false;
+
   function startGame() {
     el('lobby').classList.add('hidden');
     el('gameScreen').classList.remove('hidden');
     el('myNameLabel').textContent = isHost ? 'Host' : 'Guest';
     el('theirNameLabel').textContent = isHost ? 'Guest' : 'Host';
-    el('drawBtn').classList.toggle('hidden', !isHost);
-    if (!isHost) setLog('Waiting for the host to call numbers.');
     resetRound(true);
+  }
+
+  function updateTurnBanner() {
+    const banner = el('turnBanner');
+    if (gameOver) {
+      banner.textContent = 'Round over';
+      banner.classList.remove('my-turn');
+    } else if (myTurn) {
+      banner.textContent = 'Your turn — tap a number on your board to call it';
+      banner.classList.add('my-turn');
+    } else {
+      banner.textContent = "Opponent's turn — waiting for their call...";
+      banner.classList.remove('my-turn');
+    }
   }
 
   function resetRound(announce) {
@@ -549,10 +582,12 @@
     calledNumbers = [];
     calledSet = new Set();
     gameOver = false;
+    myTurn = isHost; // host always calls first each round
     el('winModal').classList.add('hidden');
     el('bingoBtn').disabled = true;
     el('lastBall').textContent = '--';
     el('calledList').innerHTML = '';
+    updateTurnBanner();
     renderCard();
     setLog('New round started.');
     if (announce) send({ type: 'new-round' });
@@ -567,10 +602,24 @@
         const cell = document.createElement('div');
         cell.className = 'cell';
         cell.textContent = val;
-        if (calledSet.has(val)) cell.classList.add('marked');
+        const isCalled = calledSet.has(val);
+        if (isCalled) cell.classList.add('marked');
+        if (!isCalled && myTurn && !gameOver) {
+          cell.classList.add('callable');
+          cell.addEventListener('click', () => callNumber(val));
+        }
         grid.appendChild(cell);
       }
     }
+  }
+
+  function callNumber(num) {
+    if (!myTurn || gameOver || calledSet.has(num)) return;
+    applyCalledNumber(num);
+    send({ type: 'number', value: num });
+    myTurn = false;
+    updateTurnBanner();
+    renderCard();
   }
 
   function applyCalledNumber(num) {
@@ -588,19 +637,6 @@
       setLog("You have a winning line! Click BINGO to claim it.");
     }
   }
-
-  el('drawBtn').addEventListener('click', () => {
-    if (!isHost || gameOver) return;
-    const remaining = [];
-    for (let n = 1; n <= 25; n++) if (!calledSet.has(n)) remaining.push(n);
-    if (remaining.length === 0) {
-      setLog('All 25 numbers have been called!');
-      return;
-    }
-    const num = remaining[randInt(0, remaining.length - 1)];
-    applyCalledNumber(num);
-    send({ type: 'number', value: num });
-  });
 
   function checkWin() {
     const marked = (col, row) => calledSet.has(myCard[col][row]);
@@ -635,6 +671,8 @@
 
   function showWinModal(who, label) {
     gameOver = true;
+    updateTurnBanner();
+    renderCard();
     el('winTitle').textContent = who === 'me' ? 'You got BINGO!' : label + ' got BINGO!';
     el('winSubtitle').textContent = who === 'me'
       ? 'Nice one! Start a new round when ready.'
