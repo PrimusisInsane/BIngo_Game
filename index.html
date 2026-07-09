@@ -387,8 +387,44 @@
 
   // ---------- Networking ----------
 
+  // Free STUN + TURN (Open Relay Project) so connections still work when
+  // one side is behind a strict NAT/firewall where plain STUN can't punch through.
+  const PEER_CONFIG = {
+    config: {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+        { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+        { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+      ]
+    }
+  };
+
+  const CONNECT_TIMEOUT_MS = 20000;
+  let connectTimeoutId = null;
+
+  function clearConnectTimeout() {
+    if (connectTimeoutId) {
+      clearTimeout(connectTimeoutId);
+      connectTimeoutId = null;
+    }
+  }
+
+  function armConnectTimeout(onTimeout) {
+    clearConnectTimeout();
+    connectTimeoutId = setTimeout(onTimeout, CONNECT_TIMEOUT_MS);
+  }
+
   function setupConnection() {
+    armConnectTimeout(() => {
+      setStatus('Connection timed out. This usually means a firewall/NAT is blocking the link — try a different network (e.g. mobile hotspot) and try again.');
+      el('hostBtn').disabled = false;
+      el('joinBtn').disabled = false;
+      if (conn) conn.close();
+      if (peer) peer.destroy();
+    });
     conn.on('open', () => {
+      clearConnectTimeout();
       setStatus('Connected! Starting game...');
       startGame();
     });
@@ -422,7 +458,7 @@
     roomCode = makeRoomCode();
     el('hostBtn').disabled = true;
     setStatus('Setting up room...');
-    peer = new Peer('bingo-' + roomCode);
+    peer = new Peer('bingo-' + roomCode, PEER_CONFIG);
 
     peer.on('open', () => {
       el('roomCodeDisplay').textContent = roomCode;
@@ -451,7 +487,7 @@
     roomCode = code;
     el('joinBtn').disabled = true;
     setStatus('Connecting...');
-    peer = new Peer();
+    peer = new Peer(PEER_CONFIG);
 
     peer.on('open', () => {
       conn = peer.connect('bingo-' + roomCode, { reliable: true });
