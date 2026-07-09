@@ -560,7 +560,11 @@
     el('gameScreen').classList.remove('hidden');
     el('myNameLabel').textContent = isHost ? 'Host' : 'Guest';
     el('theirNameLabel').textContent = isHost ? 'Guest' : 'Host';
-    resetRound(true);
+    // Each side already builds its own card locally when pairing completes,
+    // so don't announce here - both host and guest would otherwise broadcast
+    // a redundant reset at the same time, which can race and wipe out a call
+    // the other player just made.
+    resetRound(false);
   }
 
   function updateTurnBanner() {
