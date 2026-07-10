@@ -353,7 +353,6 @@
 
       <div class="call-panel">
         <div class="turn-banner" id="turnBanner">--</div>
-        <button class="btn-primary" id="bingoBtn" disabled>BINGO! Claim Win</button>
         <div>
           <div style="color:var(--muted); font-size:0.85rem; margin-bottom:6px;">Numbers called</div>
           <div class="called-list" id="calledList"></div>
@@ -624,7 +623,6 @@
     gameOver = false;
     myTurn = isHost; // host always calls first each round
     el('winModal').classList.add('hidden');
-    el('bingoBtn').disabled = true;
     el('lastBall').textContent = '--';
     el('calledList').innerHTML = '';
     updateTurnBanner();
@@ -705,24 +703,14 @@
     el('calledList').prepend(chip);
     renderCard();
     const lit = updateProgress();
-    if (lit >= 5) {
-      el('bingoBtn').disabled = false;
-      setLog("You spelled B-I-N-G-O! Click the button to claim it.");
+    if (lit >= 5 && !gameOver) {
+      gameOver = true;
+      send({ type: 'bingo-claim', winner: 'me' });
+      showWinModal('me', 'You');
     } else if (lit > 0) {
       setLog(`Line complete — that's ${BINGO_LETTERS.slice(0, lit).join('-')}! Keep going for BINGO.`);
     }
   }
-
-  el('bingoBtn').addEventListener('click', () => {
-    if (gameOver) return;
-    if (countCompletedLines() < 5) {
-      setLog("You need 5 separate lines (B-I-N-G-O) before you can claim it.");
-      return;
-    }
-    gameOver = true;
-    send({ type: 'bingo-claim', winner: 'me' });
-    showWinModal('me', 'You');
-  });
 
   function showWinModal(who, label) {
     gameOver = true;
