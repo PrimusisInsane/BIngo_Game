@@ -86,6 +86,20 @@
     font-size: 1rem;
     letter-spacing: 2px;
     text-transform: uppercase;
+    width: 100%;
+  }
+  #nameInput {
+    text-transform: none;
+    letter-spacing: normal;
+  }
+  .name-field {
+    margin-bottom: 20px;
+  }
+  .name-field label {
+    display: block;
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin-bottom: 6px;
   }
   button {
     cursor: pointer;
@@ -116,6 +130,28 @@
     padding: 10px 0;
   }
 
+  /* --- Waiting room --- */
+  .waiting-room { margin-top: 18px; }
+  .roster-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    margin: 12px 0;
+  }
+  .roster-chip {
+    background: var(--panel2);
+    border: 2px solid transparent;
+    padding: 8px 14px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .roster-chip.you { color: var(--accent2); border-color: var(--accent2); }
+  .roster-chip.turn { color: var(--gold); border-color: var(--gold); }
+  #startGameBtn { display: block; margin: 12px auto 0; }
+
   /* --- Game screen --- */
   .game-header {
     display: flex;
@@ -127,12 +163,9 @@
   }
   .players {
     display: flex;
-    gap: 14px;
-    font-size: 0.95rem;
-    color: var(--muted);
+    gap: 8px;
+    flex-wrap: wrap;
   }
-  .players span.me { color: var(--accent2); font-weight: 700; }
-  .players span.them { color: var(--accent); font-weight: 700; }
   .last-called {
     display: flex;
     align-items: center;
@@ -304,13 +337,17 @@
 <body>
 <div class="app">
   <h1>BINGO</h1>
-  <div class="subtitle">Play live with a friend, anywhere</div>
+  <div class="subtitle">Play live with up to 4 friends, anywhere</div>
 
   <div class="card-panel" id="lobby">
+    <div class="name-field">
+      <label for="nameInput">Your name</label>
+      <input type="text" id="nameInput" maxlength="16" placeholder="e.g. Pratham">
+    </div>
     <div class="lobby-options">
       <div class="lobby-box">
         <h2>Host a Game</h2>
-        <p style="color:var(--muted); margin:0; font-size:0.9rem;">Create a room and send the code to your friend.</p>
+        <p style="color:var(--muted); margin:0; font-size:0.9rem;">Create a room and send the code to your friends.</p>
         <button class="btn-primary" id="hostBtn">Create Room</button>
         <div class="room-code-display hidden" id="roomCodeDisplay"></div>
       </div>
@@ -321,15 +358,17 @@
         <button class="btn-secondary" id="joinBtn">Join Room</button>
       </div>
     </div>
+    <div class="waiting-room hidden" id="waitingRoom">
+      <div style="text-align:center; color:var(--muted); font-size:0.9rem;">Players joined (<span id="playerCount">1</span>/5)</div>
+      <div class="roster-list" id="rosterList"></div>
+      <button class="btn-gold hidden" id="startGameBtn" disabled>Start Game</button>
+    </div>
     <div class="status-line" id="lobbyStatus"></div>
   </div>
 
   <div class="card-panel hidden" id="gameScreen">
     <div class="game-header">
-      <div class="players">
-        <span>You: <span class="me" id="myNameLabel">Player</span></span>
-        <span>Opponent: <span class="them" id="theirNameLabel">waiting...</span></span>
-      </div>
+      <div class="players" id="playersRow"></div>
       <div class="last-called">
         <span style="color:var(--muted); font-size:0.85rem;">Last call</span>
         <div class="last-ball" id="lastBall">--</div>
@@ -378,7 +417,10 @@
 (function () {
   let mqttClient = null;
   const myId = 'p_' + Math.random().toString(36).slice(2, 10);
-  let opponentId = null;
+  const MAX_PLAYERS = 5;
+  let players = []; // [{ id, slot, name }] - slot 1 is always the host, in join order
+  let myName = '';
+  let gameStarted = false;
   let isHost = false;
   let roomCode = '';
   let myCard = null; // myCard[col][row]
@@ -426,6 +468,24 @@
     el('logLine').textContent = msg;
   }
 
+  try {
+    const savedName = localStorage.getItem('bingoPlayerName');
+    if (savedName) el('nameInput').value = savedName;
+  } catch (e) {}
+
+  function readMyName() {
+    const typed = el('nameInput').value.trim().slice(0, 16);
+    myName = typed || 'Player';
+    try { localStorage.setItem('bingoPlayerName', myName); } catch (e) {}
+    return myName;
+  }
+
+  function displayName(p) {
+    if (!p) return 'Opponent';
+    if (p.id === myId) return 'You';
+    return p.name || ('Player ' + p.slot);
+  }
+
   // ---------- Networking ----------
   // Instead of a direct WebRTC (PeerJS) connection - which repeatedly failed to
   // establish across different networks/firewalls (NAT traversal is unreliable) -
@@ -462,6 +522,26 @@
     }
   }
 
+  function renderWaitingRoom() {
+    el('waitingRoom').classList.remove('hidden');
+    el('playerCount').textContent = players.length;
+    const list = el('rosterList');
+    list.innerHTML = '';
+    players.forEach((p) => {
+      const chip = document.createElement('span');
+      chip.className = 'roster-chip' + (p.id === myId ? ' you' : '');
+      chip.textContent = displayName(p);
+      list.appendChild(chip);
+    });
+    if (isHost) {
+      el('startGameBtn').classList.remove('hidden');
+      el('startGameBtn').disabled = players.length < 2;
+      setStatus('Share code ' + roomCode + ' with friends (up to ' + (MAX_PLAYERS - 1) + ' more). Start whenever everyone has joined.');
+    } else {
+      setStatus('Waiting for the host to start the game...');
+    }
+  }
+
   function handleTopicMessage(payload) {
     let msg;
     try {
@@ -472,29 +552,33 @@
     if (msg.from === myId) return;
 
     if (msg.type === 'join') {
-      if (opponentId) return; // room already paired, ignore late/duplicate joiners
-      opponentId = msg.from;
+      if (!isHost || gameStarted) return; // only the host manages the roster
+      if (players.length >= MAX_PLAYERS || players.some((p) => p.id === msg.from)) return;
+      players.push({ id: msg.from, slot: players.length + 1, name: (msg.name || '').slice(0, 16) });
       clearNetTimeout();
-      send({ type: 'join-ack' });
-      setStatus('Connected! Starting game...');
-      startGame();
-    } else if (msg.type === 'join-ack') {
-      if (opponentId) return;
-      opponentId = msg.from;
+      send({ type: 'roster', players });
+      renderWaitingRoom();
+    } else if (msg.type === 'roster') {
+      if (gameStarted) return;
+      players = msg.players;
       clearNetTimeout();
-      setStatus('Connected! Starting game...');
+      renderWaitingRoom();
+    } else if (msg.type === 'start') {
+      if (gameStarted) return;
+      gameStarted = true;
+      players = msg.players;
       startGame();
     } else if (msg.type === 'number') {
-      myTurn = true;
       applyCalledNumber(msg.value);
-      updateTurnBanner();
-      renderCard(); // ensure cells reflect the turn flip even if this was a
-                    // duplicate delivery (MQTT QoS 1 can redeliver messages),
-                    // since applyCalledNumber no-ops - and skips its own
-                    // render - for numbers already marked.
+      updateTurnBanner(); // ensure the turn banner/callable cells refresh even if
+                          // this was a duplicate delivery (MQTT QoS 1 can
+                          // redeliver messages), since applyCalledNumber no-ops
+                          // - and skips its own render - for numbers already marked.
+      renderCard();
     } else if (msg.type === 'bingo-claim') {
       if (!gameOver) {
-        showWinModal(msg.winner === 'me' ? 'them' : 'me', msg.winner === 'me' ? 'Opponent' : 'You');
+        const winner = players.find((p) => p.id === msg.from);
+        showWinModal(msg.from === myId ? 'me' : 'them', displayName(winner));
       }
     } else if (msg.type === 'new-round') {
       resetRound(false);
@@ -530,8 +614,9 @@
 
   el('hostBtn').addEventListener('click', () => {
     isHost = true;
-    opponentId = null;
     roomCode = makeRoomCode();
+    players = [{ id: myId, slot: 1, name: readMyName() }];
+    gameStarted = false;
     el('hostBtn').disabled = true;
     setStatus('Setting up room...');
 
@@ -539,8 +624,8 @@
       () => {
         el('roomCodeDisplay').textContent = roomCode;
         el('roomCodeDisplay').classList.remove('hidden');
-        setStatus('Share this code with your friend. Waiting for them to join...');
-        // No pairing timeout for the host - it's fine to just wait.
+        renderWaitingRoom();
+        // No pairing timeout for the host - it's fine to just wait for friends to join.
       },
       (message) => {
         setStatus(message);
@@ -557,17 +642,18 @@
       return;
     }
     isHost = false;
-    opponentId = null;
     roomCode = code;
+    players = [];
+    gameStarted = false;
     el('joinBtn').disabled = true;
     setStatus('Connecting...');
 
     connectToBroker(
       () => {
-        setStatus('Joining room, waiting for host...');
-        send({ type: 'join' });
+        setStatus('Joining room...');
+        send({ type: 'join', name: readMyName() });
         armTimeout(PAIRING_TIMEOUT_MS, () => {
-          setStatus('Could not find that room. Double-check the code and that your friend is still on the "waiting" screen.');
+          setStatus('Could not find that room. Double-check the code and that the host is still on the "waiting" screen.');
           resetLobbyButtons();
           if (mqttClient) mqttClient.end(true);
         });
@@ -584,20 +670,49 @@
     if (e.key === 'Enter') el('joinBtn').click();
   });
 
-  // ---------- Game ----------
+  el('startGameBtn').addEventListener('click', () => {
+    if (!isHost || players.length < 2 || gameStarted) return;
+    gameStarted = true;
+    send({ type: 'start', players });
+    startGame();
+  });
 
-  let myTurn = false;
+  // ---------- Game ----------
 
   function startGame() {
     el('lobby').classList.add('hidden');
     el('gameScreen').classList.remove('hidden');
-    el('myNameLabel').textContent = isHost ? 'Host' : 'Guest';
-    el('theirNameLabel').textContent = isHost ? 'Guest' : 'Host';
-    // Each side already builds its own card locally when pairing completes,
-    // so don't announce here - both host and guest would otherwise broadcast
-    // a redundant reset at the same time, which can race and wipe out a call
-    // the other player just made.
+    // Each side already builds its own card locally when the roster is final,
+    // so don't announce here - everyone would otherwise broadcast a redundant
+    // reset at the same time, which can race and wipe out a call another
+    // player just made.
     resetRound(false);
+  }
+
+  // Turn order is never stored as separate mutable state - it's always derived
+  // from how many numbers have been called so far, against the fixed player
+  // order agreed at game start. That way there's nothing to desync: every
+  // client computes the same answer independently from the same shared
+  // calledSet, round-robin through however many players joined (2-5).
+  function currentTurnPlayer() {
+    if (!players.length) return null;
+    return players[calledSet.size % players.length];
+  }
+  function isMyTurn() {
+    const p = currentTurnPlayer();
+    return !!p && p.id === myId;
+  }
+
+  function renderPlayersRow() {
+    const row = el('playersRow');
+    row.innerHTML = '';
+    const turnId = gameOver ? null : (currentTurnPlayer() || {}).id;
+    players.forEach((p) => {
+      const chip = document.createElement('span');
+      chip.className = 'roster-chip' + (p.id === myId ? ' you' : '') + (p.id === turnId ? ' turn' : '');
+      chip.textContent = displayName(p);
+      row.appendChild(chip);
+    });
   }
 
   function updateTurnBanner() {
@@ -605,13 +720,15 @@
     if (gameOver) {
       banner.textContent = 'Round over';
       banner.classList.remove('my-turn');
-    } else if (myTurn) {
+    } else if (isMyTurn()) {
       banner.textContent = 'Your turn — tap a number on your board to call it';
       banner.classList.add('my-turn');
     } else {
-      banner.textContent = "Opponent's turn — waiting for their call...";
+      const turnPlayer = currentTurnPlayer();
+      banner.textContent = displayName(turnPlayer) + "'s turn — waiting for their call...";
       banner.classList.remove('my-turn');
     }
+    renderPlayersRow();
   }
 
   const BINGO_LETTERS = ['B', 'I', 'N', 'G', 'O'];
@@ -620,8 +737,7 @@
     myCard = generateCard();
     calledNumbers = [];
     calledSet = new Set();
-    gameOver = false;
-    myTurn = isHost; // host always calls first each round
+    gameOver = false; // calledSet.size resets to 0, so the host (players[0]) is naturally first again
     el('winModal').classList.add('hidden');
     el('lastBall').textContent = '--';
     el('calledList').innerHTML = '';
@@ -674,7 +790,7 @@
         cell.textContent = val;
         const isCalled = calledSet.has(val);
         if (isCalled) cell.classList.add('marked');
-        if (!isCalled && myTurn && !gameOver) {
+        if (!isCalled && isMyTurn() && !gameOver) {
           cell.classList.add('callable');
           cell.addEventListener('click', () => callNumber(val));
         }
@@ -684,10 +800,9 @@
   }
 
   function callNumber(num) {
-    if (!myTurn || gameOver || calledSet.has(num)) return;
+    if (!isMyTurn() || gameOver || calledSet.has(num)) return;
     applyCalledNumber(num);
     send({ type: 'number', value: num });
-    myTurn = false;
     updateTurnBanner();
     renderCard();
   }
@@ -705,7 +820,7 @@
     const lit = updateProgress();
     if (lit >= 5 && !gameOver) {
       gameOver = true;
-      send({ type: 'bingo-claim', winner: 'me' });
+      send({ type: 'bingo-claim' }); // send() already attaches "from: myId"
       showWinModal('me', 'You');
     } else if (lit > 0) {
       setLog(`Line complete — that's ${BINGO_LETTERS.slice(0, lit).join('-')}! Keep going for BINGO.`);
