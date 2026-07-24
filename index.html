@@ -417,7 +417,7 @@
 (function () {
   let mqttClient = null;
   const myId = 'p_' + Math.random().toString(36).slice(2, 10);
-  const MAX_PLAYERS = 5;
+  const MAX_PLAYERS = 6; // 1 host + 5 friends
   let players = []; // [{ id, slot, name }] - slot 1 is always the host, in join order
   let myName = '';
   let gameStarted = false;
