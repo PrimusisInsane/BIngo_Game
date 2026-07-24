@@ -337,7 +337,7 @@
 <body>
 <div class="app">
   <h1>BINGO</h1>
-  <div class="subtitle">Play live with up to 4 friends, anywhere</div>
+  <div class="subtitle">Play live with up to 5 friends, anywhere</div>
 
   <div class="card-panel" id="lobby">
     <div class="name-field">
@@ -359,7 +359,7 @@
       </div>
     </div>
     <div class="waiting-room hidden" id="waitingRoom">
-      <div style="text-align:center; color:var(--muted); font-size:0.9rem;">Players joined (<span id="playerCount">1</span>/5)</div>
+      <div style="text-align:center; color:var(--muted); font-size:0.9rem;">Players joined (<span id="playerCount">1</span>/6)</div>
       <div class="roster-list" id="rosterList"></div>
       <button class="btn-gold hidden" id="startGameBtn" disabled>Start Game</button>
     </div>
@@ -417,7 +417,7 @@
 (function () {
   let mqttClient = null;
   const myId = 'p_' + Math.random().toString(36).slice(2, 10);
-  const MAX_PLAYERS = 6; // 1 host + 5 friends
+  const MAX_PLAYERS = 6;
   let players = []; // [{ id, slot, name }] - slot 1 is always the host, in join order
   let myName = '';
   let gameStarted = false;
